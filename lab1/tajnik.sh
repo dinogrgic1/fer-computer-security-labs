@@ -1,0 +1,1 @@
+python pwd_manager.py $1 $2 $3

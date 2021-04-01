@@ -36,7 +36,7 @@ def AES_decrypt(key, ciphertext, nonce, tag):
         cipher.verify(tag)
         return plaintext
     except ValueError:
-        raise Exception("Key incorrect or message corrupted")
+        raise Exception("Master password is incorrect or vault is corrupted.")
 
 def key_password_derivation(master_pass=None, salt=get_random_bytes(PBKDF2_SALT_SIZE)):
     if master_pass is None:
