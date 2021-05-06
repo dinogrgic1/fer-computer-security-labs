@@ -18,7 +18,7 @@ PBKDF2_SALT_SIZE = 128
 PBKDF2_KEY_SIZE = 256
 PBKDF2_ITTERATIONS = 1000000
 
-# user(256) pwd_change(1) pwd(256) salt(256)
+# user(256) pwd_change(1) pwd(256) salt(128)
 BLOCK_SIZE = USER_MAX_SIZE + PBKDF2_SALT_SIZE + PWD_MAX_SIZE + 1
 
 def is_safe_password(pwd):
@@ -26,7 +26,7 @@ def is_safe_password(pwd):
     match = regex.match(pwd)
     return bool(match)
 
-def input_password():
+def input_password(sal=get_random_bytes(PBKDF2_SALT_SIZE)):
     pwd = getpass.getpass("Password: ")
     pwd_again = getpass.getpass("Repeat password: ")
     if pwd != pwd_again:
@@ -35,10 +35,10 @@ def input_password():
     if is_safe_password(pwd) == False:
         raise Exception(
             "Password not safe enough. Password must have 8 characters, at least one number and one letter")
-    return key_password_derivation(master_pass=pwd)
+    return key_password_derivation(master_pass=pwd, salt=sal)
 
 
-def key_password_derivation(master_pass=None, salt=get_random_bytes(PBKDF2_SALT_SIZE)):
+def key_password_derivation(master_pass=None, salt=None):
     keys = PBKDF2(master_pass, salt, PBKDF2_KEY_SIZE,
                   count=PBKDF2_ITTERATIONS, hmac_hash_module=SHA512)
     return (keys, salt)
@@ -99,11 +99,67 @@ def del_user(user):
     users_sys.write(users_sys_content)
     users_sys.close()
 
-def pwd_change():
-    pass
+def pwd_change(user):
+    users_sys = init_file_if_not_exists(USER_BASE_PATH)
+    users_sys_content = users_sys.read()
 
-def pwd_force():
-    pass
+    user_id = user_exists(user, users_sys_content)
+    if user_id != None:
+        pwd = input_password()
+        print('User will change password on next login.')
+        users_sys_content = users_sys_content[:user_id + BLOCK_SIZE - PBKDF2_SALT_SIZE - PWD_MAX_SIZE] + pwd[0] + pwd[1] +  users_sys_content[user_id + BLOCK_SIZE:]
+
+    users_sys.truncate(0)
+    users_sys.seek(0)
+    users_sys.write(users_sys_content)
+    users_sys.close()
+
+def pwd_force(user):
+    users_sys = init_file_if_not_exists(USER_BASE_PATH)
+    users_sys_content = users_sys.read()
+
+    user_id = user_exists(user, users_sys_content)
+    if user_id != None:
+        print('User will change password on next login.')
+        users_sys_content = users_sys_content[:user_id + USER_MAX_SIZE] + b'1' +  users_sys_content[user_id + USER_MAX_SIZE + 1:]
+
+    users_sys.truncate(0)
+    users_sys.seek(0)
+    users_sys.write(users_sys_content)
+    users_sys.close()
+
+def user_login(user):
+    users_sys = init_file_if_not_exists(USER_BASE_PATH)
+    users_sys_content = users_sys.read()
+
+    user_id = user_exists(user, users_sys_content)
+    if user_id != None:
+        salt = users_sys_content[user_id + BLOCK_SIZE - PBKDF2_SALT_SIZE: user_id + BLOCK_SIZE]
+        pwd2 = users_sys_content[user_id + USER_MAX_SIZE + 1: user_id + USER_MAX_SIZE + 1 + PWD_MAX_SIZE]
+        pwd1 = input_password(sal=salt)
+        
+        if pwd1[0] == pwd2:
+            print('password correct')
+        debug_user(users_sys_content, user_id)
+
+    users_sys.truncate(0)
+    users_sys.seek(0)
+    users_sys.write(users_sys_content)
+    users_sys.close()
+
+def debug_user(users_sys_content, user_id):
+    usr = unpad(users_sys_content[user_id: user_id + USER_MAX_SIZE], USER_MAX_SIZE)
+    usr = usr.decode('ascii')
+    pwd_chn = users_sys_content[user_id + USER_MAX_SIZE: user_id + USER_MAX_SIZE + 1]
+    pwd_chn = pwd_chn.decode('ascii')
+    passw = users_sys_content[user_id + USER_MAX_SIZE + 1: user_id + USER_MAX_SIZE + PWD_MAX_SIZE]
+    salt = users_sys_content[user_id + BLOCK_SIZE - PBKDF2_SALT_SIZE: user_id + BLOCK_SIZE]
+
+    print(usr)
+    print(pwd_chn)
+    print(passw)
+    print(salt)
+    
 
 if __name__ == '__main__':
     args = sys.argv
@@ -111,11 +167,13 @@ if __name__ == '__main__':
         if args[1] == 'add':
             add_user(args[2])
         elif args[1] == 'passwrd':
-            pass
+            pwd_change(args[2])
         elif args[1] == 'forcepass':
-            pass
+            pwd_force(args[2])
         elif args[1] == 'del':
             del_user(args[2])
+        elif args[1] == 'login':
+            user_login(args[2])
         else:
             raise Exception("Inavlid action.")
     except IndexError:
