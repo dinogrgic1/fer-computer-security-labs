@@ -13,6 +13,7 @@ PWD_MIN_SIZE = 8
 PWD_MIN_REGEX = ''
 PWD_MAX_SIZE = 256
 PWD_SAFE_REGEX = '^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$'
+PWD_RETRY_NUM = 3
 
 PBKDF2_SALT_SIZE = 128
 PBKDF2_KEY_SIZE = 256
@@ -20,6 +21,12 @@ PBKDF2_ITTERATIONS = 1000000
 
 # user(256) pwd_change(1) pwd(256) salt(128)
 BLOCK_SIZE = USER_MAX_SIZE + PBKDF2_SALT_SIZE + PWD_MAX_SIZE + 1
+
+def rewrite_file_and_close(file_stream, content):
+    file_stream.truncate(0)
+    file_stream.seek(0)
+    file_stream.write(content)
+    file_stream.close()
 
 def is_safe_password(pwd):
     regex = re.compile(PWD_SAFE_REGEX, re.I)
@@ -79,25 +86,17 @@ def add_user(user):
     file_content += b'0'
     file_content += pwd[0]
     file_content += pwd[1]
-    
-    users_sys.truncate(0)
-    users_sys.seek(0)
-    users_sys.write(file_content)
-    users_sys.close()
+    rewrite_file_and_close(user_sys, file_content)
 
 def del_user(user):
     users_sys = init_file_if_not_exists(USER_BASE_PATH)
     users_sys_content = users_sys.read()
-    
+
     user_id = user_exists(user, users_sys_content)
     if user_id != None:
-        print('User sucessfully removed.')
         users_sys_content = users_sys_content[:user_id] + users_sys_content[user_id+BLOCK_SIZE:]
-
-    users_sys.truncate(0)
-    users_sys.seek(0)
-    users_sys.write(users_sys_content)
-    users_sys.close()
+        rewrite_file_and_close(user_sys, users_sys_content)
+        print('User sucessfully removed.')
 
 def pwd_change(user):
     users_sys = init_file_if_not_exists(USER_BASE_PATH)
@@ -106,13 +105,9 @@ def pwd_change(user):
     user_id = user_exists(user, users_sys_content)
     if user_id != None:
         pwd = input_password()
-        print('User will change password on next login.')
         users_sys_content = users_sys_content[:user_id + BLOCK_SIZE - PBKDF2_SALT_SIZE - PWD_MAX_SIZE] + pwd[0] + pwd[1] +  users_sys_content[user_id + BLOCK_SIZE:]
-
-    users_sys.truncate(0)
-    users_sys.seek(0)
-    users_sys.write(users_sys_content)
-    users_sys.close()
+        rewrite_file_and_close(user_sys, users_sys_content)
+        print('User will change password on next login.')
 
 def pwd_force(user):
     users_sys = init_file_if_not_exists(USER_BASE_PATH)
@@ -120,13 +115,9 @@ def pwd_force(user):
 
     user_id = user_exists(user, users_sys_content)
     if user_id != None:
-        print('User will change password on next login.')
         users_sys_content = users_sys_content[:user_id + USER_MAX_SIZE] + b'1' +  users_sys_content[user_id + USER_MAX_SIZE + 1:]
-
-    users_sys.truncate(0)
-    users_sys.seek(0)
-    users_sys.write(users_sys_content)
-    users_sys.close()
+        rewrite_file_and_close(user_sys, users_sys_content)
+        print('User will change password on next login.')
 
 def user_login(user):
     users_sys = init_file_if_not_exists(USER_BASE_PATH)
@@ -136,16 +127,15 @@ def user_login(user):
     if user_id != None:
         salt = users_sys_content[user_id + BLOCK_SIZE - PBKDF2_SALT_SIZE: user_id + BLOCK_SIZE]
         pwd2 = users_sys_content[user_id + USER_MAX_SIZE + 1: user_id + USER_MAX_SIZE + 1 + PWD_MAX_SIZE]
-        pwd1 = input_password(sal=salt)
         
-        if pwd1[0] == pwd2:
-            print('password correct')
-        debug_user(users_sys_content, user_id)
-
-    users_sys.truncate(0)
-    users_sys.seek(0)
-    users_sys.write(users_sys_content)
-    users_sys.close()
+        retries = PWD_RETRY_NUM
+        while(retries > 0):
+            pwd1 = input_password(sal=salt)
+            if pwd1[0] == pwd2:
+                print('Correct password.')
+                break
+            retries = retries - 1
+            print('Wrong password. You have {retries} left.')
 
 def debug_user(users_sys_content, user_id):
     usr = unpad(users_sys_content[user_id: user_id + USER_MAX_SIZE], USER_MAX_SIZE)
